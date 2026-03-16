@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Protocolo Visual IA — Decoder</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #030b0f;
+    --surface: #071318;
+    --surface2: #0c1e26;
+    --border: #0e3040;
+    --accent: #00e5ff;
+    --accent2: #00ff9d;
+    --accent3: #ff6b35;
+    --warn: #ffd600;
+    --text: #c8dde4;
+    --text-dim: #4a7a8a;
+    --mono: 'Share Tech Mono', monospace;
+    --sans: 'Rajdhani', sans-serif;
+    --glow: 0 0 12px rgba(0,229,255,0.4);
+    --glow2: 0 0 12px rgba(0,255,157,0.4);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.07) 2px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(7,19,24,0.95);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 36px; height: 36px;
+    border: 2px solid var(--accent);
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    gap: 2px;
+    padding: 4px;
+    box-shadow: var(--glow);
+  }
+
+  .logo-icon span {
+    background: var(--accent);
+    opacity: 0.7;
+    animation: blink 2s infinite;
+  }
+  .logo-icon span:nth-child(2) { animation-delay: .3s; opacity: 0.3; }
+  .logo-icon span:nth-child(4) { animation-delay: .6s; opacity: 0.9; }
+  .logo-icon span:nth-child(6) { animation-delay: .9s; opacity: 0.4; }
+  .logo-icon span:nth-child(8) { animation-delay: 1.2s; opacity: 0.8; }
+
+  @keyframes blink {
+    0%,100% { opacity: var(--op, 0.7); }
+    50% { opacity: 0.1; }
+  }
+
+  .logo h1 {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  .logo p { font-size: 11px; color: var(--text-dim); letter-spacing: 2px; }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .dot.active { background: var(--accent2); box-shadow: var(--glow2); animation: pulse 1.5s infinite; }
+  .dot.error { background: var(--accent3); }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; } 50% { opacity: 0.3; }
+  }
+
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 0;
+    height: calc(100vh - 65px);
+  }
+
+  /* LEFT: Camera */
+  .cam-panel {
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+    gap: 16px;
+    border-right: 1px solid var(--border);
+  }
+
+  .cam-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .cam-wrap {
+    position: relative;
+    background: #000;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Corner brackets */
+  .cam-wrap::before, .cam-wrap::after,
+  .cam-wrap .corner-br, .cam-wrap .corner-bl {
+    content: '';
+    position: absolute;
+    width: 24px; height: 24px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .cam-wrap::before {
+    top: 10px; left: 10px;
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+  }
+  .cam-wrap::after {
+    top: 10px; right: 10px;
+    border-top: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+  }
+  .cam-wrap .corner-br {
+    bottom: 10px; right: 10px;
+    border-bottom: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+  }
+  .cam-wrap .corner-bl {
+    bottom: 10px; left: 10px;
+    border-bottom: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+  }
+
+  /* Scan line */
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0;
+    z-index: 10;
+    pointer-events: none;
+    top: 0;
+  }
+  .scan-line.scanning {
+    opacity: 0.6;
+    animation: scanMove 1.8s ease-in-out infinite;
+  }
+  @keyframes scanMove {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+
+  video, canvas#preview {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  canvas#hidden { display: none; }
+
+  .no-cam {
+    text-align: center;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 2;
+  }
+  .no-cam .icon { font-size: 40px; margin-bottom: 12px; opacity: 0.3; }
+
+  .cam-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 10px 20px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+    transition: all .2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: translateX(-100%);
+    transition: transform .2s;
+    z-index: 0;
+  }
+  .btn:hover::before { transform: translateX(0); }
+  .btn:hover { color: var(--bg); }
+  .btn span { position: relative; z-index: 1; }
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .btn:disabled::before { display: none; }
+
+  .btn.green { border-color: var(--accent2); color: var(--accent2); }
+  .btn.green::before { background: var(--accent2); }
+
+  .btn.orange { border-color: var(--accent3); color: var(--accent3); }
+  .btn.orange::before { background: var(--accent3); }
+
+  .api-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .api-input {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    letter-spacing: 1px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .api-input:focus { border-color: var(--accent); }
+  .api-input::placeholder { color: var(--text-dim); }
+
+  /* RIGHT: Decoder */
+  .decoder-panel {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    background: var(--surface);
+  }
+
+  .decoder-panel::-webkit-scrollbar { width: 4px; }
+  .decoder-panel::-webkit-scrollbar-track { background: var(--surface); }
+  .decoder-panel::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .section {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-title {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* Symbol grid display */
+  .symbol-grid {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 3px;
+    background: #000;
+    border: 1px solid var(--border);
+    padding: 12px;
+    aspect-ratio: 1;
+    max-width: 220px;
+    margin: 0 auto;
+  }
+
+  .cell {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: bold;
+    border-radius: 1px;
+    transition: all .3s;
+  }
+  .cell.bit-0 { background: rgba(0,229,255,0.08); color: rgba(0,229,255,0.35); }
+  .cell.bit-1 { background: rgba(0,229,255,0.25); color: var(--accent); box-shadow: 0 0 4px rgba(0,229,255,0.3); }
+  .cell.empty { background: transparent; color: transparent; }
+  .cell.sep { background: rgba(255,255,255,0.02); }
+
+  /* Sectors decoded */
+  .sectors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .sector-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .sector-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .sector-card.s1::before { background: var(--accent); }
+  .sector-card.s2::before { background: var(--accent2); }
+  .sector-card.s3::before { background: var(--warn); }
+  .sector-card.s4::before { background: var(--accent3); }
+
+  .sector-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  .sector-bits {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 3px;
+    margin-bottom: 6px;
+  }
+  .s1 .sector-bits { color: var(--accent); }
+  .s2 .sector-bits { color: var(--accent2); }
+  .s3 .sector-bits { color: var(--warn); }
+  .s4 .sector-bits { color: var(--accent3); }
+
+  .sector-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  .sector-desc {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* Interpretation */
+  .interpretation {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent2);
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text);
+    min-height: 60px;
+    font-family: var(--sans);
+    white-space: pre-wrap;
+  }
+
+  .interpretation.loading {
+    color: var(--text-dim);
+    animation: textPulse 1s infinite;
+  }
+  @keyframes textPulse {
+    0%,100% { opacity: 1; } 50% { opacity: 0.4; }
+  }
+
+  /* Raw bits */
+  .raw-bits {
+    font-family: var(--mono);
+    font-size: 18px;
+    letter-spacing: 6px;
+    color: var(--text-dim);
+    text-align: center;
+    padding: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+
+  .raw-bits .b1 { color: var(--accent); }
+  .raw-bits .b2 { color: var(--accent2); }
+  .raw-bits .b3 { color: var(--warn); }
+  .raw-bits .b4 { color: var(--accent3); }
+
+  /* History */
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  .history-item:hover { border-color: var(--accent); }
+  .history-item .ts { font-family: var(--mono); font-size: 9px; color: var(--text-dim); min-width: 55px; }
+  .history-item .hbits { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+  .history-item .hval { color: var(--text); flex: 1; font-size: 11px; }
+
+  /* Text chain */
+  .text-chain {
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 12px;
+    background: #000;
+    border: 1px solid var(--border);
+    color: var(--accent2);
+    min-height: 48px;
+    word-break: break-all;
+    letter-spacing: 1px;
+  }
+
+  .chain-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  /* Modifiers badges */
+  .mods {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .mod-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 3px 8px;
+    border: 1px solid;
+    letter-spacing: 1px;
+    opacity: 0.4;
+  }
+  .mod-badge.active {
+    opacity: 1;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .mod-urgente { border-color: var(--accent3); color: var(--accent3); }
+  .mod-confirmar { border-color: var(--warn); color: var(--warn); }
+  .mod-silencioso { border-color: var(--text-dim); color: var(--text-dim); }
+  .mod-persistente { border-color: var(--accent2); color: var(--accent2); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 30px 20px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 2.2;
+    letter-spacing: 1px;
+  }
+  .empty-state .big { font-size: 32px; margin-bottom: 12px; opacity: 0.2; }
+
+  /* Responsive */
+  @media (max-width: 800px) {
+    .main { grid-template-columns: 1fr; grid-template-rows: 60vh auto; height: auto; }
+    .cam-panel { height: 60vh; }
+    .decoder-panel { height: auto; }
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 12px 20px;
+    letter-spacing: 1px;
+    transition: transform .3s;
+    z-index: 9000;
+    white-space: nowrap;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.err { border-left-color: var(--accent3); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <span></span><span></span><span></span>
+      <span></span><span></span><span></span>
+      <span></span><span></span><span></span>
+    </div>
+    <div>
+      <h1>Protocolo Visual IA</h1>
+      <p>DECODER v1.0 · 9×9 O/X GRID READER</p>
+    </div>
+  </div>
+  <div class="status-bar">
+    <div class="dot" id="camDot"></div>
+    <span id="statusText">CÁMARA INACTIVA</span>
+    <span style="margin: 0 8px; color: var(--border)">|</span>
+    <div class="dot" id="apiDot"></div>
+    <span id="apiStatusText">API DESCONECTADA</span>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- LEFT: Camera Panel -->
+  <div class="cam-panel">
+    <span class="cam-label">// entrada de video</span>
+
+    <div class="cam-wrap" id="camWrap">
+      <div class="corner-br"></div>
+      <div class="corner-bl"></div>
+      <div class="scan-line" id="scanLine"></div>
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="preview"></canvas>
+      <div class="no-cam" id="noCam">
+        <div class="icon">⬛</div>
+        CÁMARA NO INICIADA<br>
+        <span style="font-size:10px; color: var(--text-dim)">Presiona INICIAR CÁMARA para comenzar</span>
+      </div>
+    </div>
+    <canvas id="hidden"></canvas>
+
+    <div class="api-row">
+      <input class="api-input" type="password" id="apiKey" placeholder="QWen API Key (DashScope) — sk-...">
+      <button class="btn" onclick="saveApiKey()"><span>✓ GUARDAR</span></button>
+    </div>
+
+    <div class="cam-controls">
+      <button class="btn green" id="btnCam" onclick="toggleCamera()"><span>▶ INICIAR CÁMARA</span></button>
+      <button class="btn" id="btnCapture" onclick="captureAndAnalyze()" disabled><span>⊙ CAPTURAR</span></button>
+      <button class="btn orange" id="btnAuto" onclick="toggleAuto()" disabled><span>AUTO</span></button>
+    </div>
+
+    <div style="font-family: var(--mono); font-size: 10px; color: var(--text-dim); line-height: 1.8;">
+      <span style="color: var(--accent)">MODO AUTO:</span> captura cada 2s · Apunta la cámara a la cuadrícula 9×9 O/X<br>
+      <span style="color: var(--accent2)">MODO MANUAL:</span> presiona CAPTURAR para analizar un frame
+    </div>
+  </div>
+
+  <!-- RIGHT: Decoder Panel -->
+  <div class="decoder-panel">
+
+    <!-- Bit display -->
+    <div class="section">
+      <div class="section-title">// bits crudos — 16 bits</div>
+      <div class="raw-bits" id="rawBits">
+        <span class="b1" id="rb1">????</span>
+        <span style="color:var(--border)"> </span>
+        <span class="b2" id="rb2">????</span>
+        <span style="color:var(--border)"> </span>
+        <span class="b3" id="rb3">????</span>
+        <span style="color:var(--border)"> </span>
+        <span class="b4" id="rb4">????</span>
+      </div>
+    </div>
+
+    <!-- Symbol grid -->
+    <div class="section">
+      <div class="section-title">// cuadrícula 9×9 decodificada</div>
+      <div class="symbol-grid" id="symbolGrid"></div>
+    </div>
+
+    <!-- Sectors -->
+    <div class="section">
+      <div class="section-title">// sectores decodificados</div>
+      <div class="sectors">
+        <div class="sector-card s1">
+          <div class="sector-label">S1 · TIPO</div>
+          <div class="sector-bits" id="s1bits">????</div>
+          <div class="sector-value" id="s1val">—</div>
+          <div class="sector-desc" id="s1desc">esperando señal</div>
+        </div>
+        <div class="sector-card s2">
+          <div class="sector-label">S2 · OPERACIÓN</div>
+          <div class="sector-bits" id="s2bits">????</div>
+          <div class="sector-value" id="s2val">—</div>
+          <div class="sector-desc" id="s2desc">esperando señal</div>
+        </div>
+        <div class="sector-card s3">
+          <div class="sector-label">S3 · CONTEXTO</div>
+          <div class="sector-bits" id="s3bits">????</div>
+          <div class="sector-value" id="s3val">—</div>
+          <div class="sector-desc" id="s3desc">esperando señal</div>
+        </div>
+        <div class="sector-card s4">
+          <div class="sector-label">S4 · MODIFICADORES</div>
+          <div class="sector-bits" id="s4bits">????</div>
+          <div class="mods">
+            <span class="mod-badge mod-urgente" id="modU">URGENTE</span>
+            <span class="mod-badge mod-confirmar" id="modC">CONFIRMAR</span>
+            <span class="mod-badge mod-silencioso" id="modS">SILENC.</span>
+            <span class="mod-badge mod-persistente" id="modP">PERSIST.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interpretation -->
+    <div class="section">
+      <div class="section-title">// interpretación IA (qwen-vl)</div>
+      <div class="interpretation" id="interpretation">
+<span style="color:var(--text-dim); font-family:var(--mono); font-size:11px;">
+Ingresa tu API key y captura un símbolo
+para ver la interpretación completa del protocolo.
+</span>
+      </div>
+    </div>
+
+    <!-- Text chain mode -->
+    <div class="section" id="chainSection" style="display:none">
+      <div class="section-title">// modo cadena de texto</div>
+      <div class="chain-status">
+        <div class="dot active"></div>
+        <span id="chainStatus">ACUMULANDO FRAMES...</span>
+      </div>
+      <div class="text-chain" id="textChain"></div>
+    </div>
+
+    <!-- History -->
+    <div class="section">
+      <div class="section-title">// historial de capturas</div>
+      <div class="history-list" id="historyList">
+        <div class="empty-state">
+          <div class="big">○</div>
+          SIN CAPTURAS AÚN
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// PROTOCOLO VISUAL IA — Lookup tables
+// ═══════════════════════════════════════════════════════
+
+const SECTOR1 = {
+  0:  { name: 'Nulo',        cat: 'Primitivo' },
+  1:  { name: 'Booleano',    cat: 'Primitivo' },
+  2:  { name: 'Entero',      cat: 'Primitivo' },
+  3:  { name: 'Decimal',     cat: 'Primitivo' },
+  4:  { name: 'Texto',       cat: 'Primitivo' },
+  5:  { name: 'Temporal',    cat: 'Primitivo' },
+  6:  { name: 'Coordenada',  cat: 'Primitivo' },
+  7:  { name: 'Binario',     cat: 'Primitivo' },
+  8:  { name: 'Estructura',  cat: 'Estructurado' },
+  9:  { name: 'Multimedia',  cat: 'Estructurado' },
+  10: { name: 'Comando',     cat: 'Control' },
+  11: { name: 'Pregunta',    cat: 'Control' },
+  12: { name: 'Respuesta',   cat: 'Control' },
+  13: { name: 'Error',       cat: 'Control' },
+  14: { name: 'ATENCIÓN',    cat: 'Reservado — inicio cadena' },
+  15: { name: 'FIN',         cat: 'Reservado — fin cadena' },
+};
+
+const SECTOR2 = {
+  0:  { name: 'Leer',        desc: 'Obtener dato existente',           group: 'CRUD' },
+  1:  { name: 'Crear',       desc: 'Generar dato nuevo',               group: 'CRUD' },
+  2:  { name: 'Actualizar',  desc: 'Modificar dato existente',         group: 'CRUD' },
+  3:  { name: 'Eliminar',    desc: 'Borrar dato existente',            group: 'CRUD' },
+  4:  { name: 'Buscar',      desc: 'Encontrar por criterio',           group: 'Proceso' },
+  5:  { name: 'Comparar',    desc: 'Evaluar diferencias',              group: 'Proceso' },
+  6:  { name: 'Transformar', desc: 'Cambiar formato/estructura',       group: 'Proceso' },
+  7:  { name: 'Calcular',    desc: 'Operación matemática',             group: 'Proceso' },
+  8:  { name: 'Filtrar',     desc: 'Seleccionar subconjunto',          group: 'Proceso' },
+  9:  { name: 'Ordenar',     desc: 'Reorganizar por criterio',         group: 'Proceso' },
+  10: { name: 'Enviar',      desc: 'Transmitir hacia la IA',           group: 'Comunicación' },
+  11: { name: 'Recibir',     desc: 'Solicitar desde la IA',            group: 'Comunicación' },
+  12: { name: 'Iniciar',     desc: 'Comenzar sesión/proceso',          group: 'Comunicación' },
+  13: { name: 'Detener',     desc: 'Interrumpir proceso activo',       group: 'Comunicación' },
+  14: { name: 'Pausar',      desc: 'Suspender temporalmente',          group: 'Flujo' },
+  15: { name: 'Repetir',     desc: 'Volver a ejecutar lo anterior',    group: 'Flujo' },
+};
+
+const SECTOR3 = {
+  0:  { name: 'Conv. actual',  desc: 'Hilo de chat en curso',           group: 'Memoria' },
+  1:  { name: 'Mem. corta',    desc: 'Contexto reciente de sesión',     group: 'Memoria' },
+  2:  { name: 'Mem. larga',    desc: 'Datos persistentes del usuario',  group: 'Memoria' },
+  3:  { name: 'Historial',     desc: 'Registros pasados',               group: 'Memoria' },
+  4:  { name: 'Arch. externo', desc: 'Documento/fichero adjunto',       group: 'Almacenamiento' },
+  5:  { name: 'Base de datos', desc: 'Repositorio estructurado',        group: 'Almacenamiento' },
+  6:  { name: 'Nube',          desc: 'Servicio remoto en línea',        group: 'Almacenamiento' },
+  7:  { name: 'Local',         desc: 'Dispositivo del usuario',         group: 'Almacenamiento' },
+  8:  { name: 'Usuario',       desc: 'Originado por el humano',         group: 'Fuente' },
+  9:  { name: 'Sistema',       desc: 'Generado por la máquina',         group: 'Fuente' },
+  10: { name: 'Red/Internet',  desc: 'Fuente externa en línea',         group: 'Fuente' },
+  11: { name: 'Otro agente IA',desc: 'Otro modelo/proceso IA',          group: 'Fuente' },
+  12: { name: 'Público',       desc: 'Accesible sin restricciones',     group: 'Privacidad' },
+  13: { name: 'Privado',       desc: 'Restringido al usuario',          group: 'Privacidad' },
+  14: { name: 'Encriptado',    desc: 'Protegido con cifrado',           group: 'Privacidad' },
+  15: { name: 'Tiempo real',   desc: 'Datos en vivo/sensores',          group: 'Fuente' },
+};
+
+// ═══════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════
+let stream = null;
+let autoInterval = null;
+let apiKey = localStorage.getItem('qwen_api_key') || '';
+let chainMode = false;
+let chainBuffer = '';
+let history = [];
+
+const video = document.getElementById('video');
+const hidden = document.getElementById('hidden');
+const preview = document.getElementById('preview');
+
+// Restore API key
+if (apiKey) {
+  document.getElementById('apiKey').value = apiKey;
+  setApiStatus(true);
+}
+
+// Init empty grid
+initGrid();
+
+// ═══════════════════════════════════════════════════════
+// Camera
+// ═══════════════════════════════════════════════════════
+async function toggleCamera() {
+  if (stream) {
+    stopCamera();
+  } else {
+    await startCamera();
+  }
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    video.srcObject = stream;
+    video.style.display = 'block';
+    document.getElementById('noCam').style.display = 'none';
+    document.getElementById('btnCam').querySelector('span').textContent = '■ DETENER CÁMARA';
+    document.getElementById('btnCapture').disabled = false;
+    document.getElementById('btnAuto').disabled = false;
+    document.getElementById('camDot').classList.add('active');
+    document.getElementById('statusText').textContent = 'CÁMARA ACTIVA';
+    showToast('Cámara iniciada correctamente');
+  } catch (e) {
+    showToast('Error al acceder a la cámara: ' + e.message, true);
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+  video.style.display = 'none';
+  document.getElementById('noCam').style.display = 'flex';
+  document.getElementById('btnCam').querySelector('span').textContent = '▶ INICIAR CÁMARA';
+  document.getElementById('btnCapture').disabled = true;
+  document.getElementById('btnAuto').disabled = true;
+  document.getElementById('camDot').classList.remove('active');
+  document.getElementById('statusText').textContent = 'CÁMARA INACTIVA';
+  stopAuto();
+}
+
+function toggleAuto() {
+  if (autoInterval) {
+    stopAuto();
+  } else {
+    autoInterval = setInterval(captureAndAnalyze, 2000);
+    document.getElementById('btnAuto').querySelector('span').textContent = '■ DETENER AUTO';
+    document.getElementById('scanLine').classList.add('scanning');
+    showToast('Modo automático activado (2s)');
+  }
+}
+
+function stopAuto() {
+  clearInterval(autoInterval);
+  autoInterval = null;
+  document.getElementById('btnAuto').querySelector('span').textContent = 'AUTO';
+  document.getElementById('scanLine').classList.remove('scanning');
+}
+
+// ═══════════════════════════════════════════════════════
+// Capture & Analyze
+// ═══════════════════════════════════════════════════════
+async function captureAndAnalyze() {
+  if (!stream) return;
+  if (!apiKey) { showToast('Ingresa tu API key primero', true); return; }
+
+  // Draw frame to hidden canvas
+  hidden.width = video.videoWidth;
+  hidden.height = video.videoHeight;
+  const ctx = hidden.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+
+  // Show captured frame
+  preview.width = video.videoWidth;
+  preview.height = video.videoHeight;
+  const pCtx = preview.getContext('2d');
+  pCtx.drawImage(video, 0, 0);
+  preview.style.position = 'absolute';
+  preview.style.top = '0';
+  preview.style.left = '0';
+
+  const base64 = hidden.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+  document.getElementById('interpretation').textContent = 'Analizando con Qwen-VL...';
+  document.getElementById('interpretation').classList.add('loading');
+
+  try {
+    const result = await callQwenVL(base64);
+    processResult(result);
+  } catch (e) {
+    document.getElementById('interpretation').classList.remove('loading');
+    document.getElementById('interpretation').textContent = 'Error: ' + e.message;
+    showToast('Error de API: ' + e.message, true);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// Qwen-VL API Call
+// ═══════════════════════════════════════════════════════
+async function callQwenVL(base64Image) {
+  const systemPrompt = `Eres un decodificador del Protocolo Visual IA. 
+Tu tarea es analizar una imagen que contiene una cuadrícula 9×9 de celdas O/X sobre fondo negro.
+
+ESTRUCTURA DE LA CUADRÍCULA:
+- La cuadrícula es de 9 columnas × 9 filas (indexadas 0-8)
+- Celdas activas (con símbolo): las 4 esquinas, cada una de 3×3 celdas
+- Las columnas 3-4 y filas 3-4 son separadores (vacías o neutras)
+- X = bit 1 (blanco brillante), O = bit 0 (blanco tenue)
+
+POSICIÓN DE LOS SECTORES:
+- S1 (Tipo de dato): filas 0-2, cols 0-2 → leer fila por fila, 4 bits: celdas [0,0][0,1][1,0][1,1] del sector
+- S2 (Operación): filas 0-2, cols 5-7 → 4 bits: celdas [0,5][0,6][1,5][1,6]
+- S3 (Contexto): filas 5-7, cols 0-2 → 4 bits: celdas [5,0][5,1][6,0][6,1]
+- S4 (Modificadores): filas 5-7, cols 5-7 → 4 bits: celdas [5,5][5,6][6,5][6,6]
+
+Cada sector usa exactamente 4 celdas en patrón 2×2 (las primeras 2 filas × primeras 2 cols del bloque 3×3).
+
+TABLAS DE DECODIFICACIÓN:
+S1 (Tipo): 0=Nulo,1=Booleano,2=Entero,3=Decimal,4=Texto,5=Temporal,6=Coordenada,7=Binario,8=Estructura,9=Multimedia,10=Comando,11=Pregunta,12=Respuesta,13=Error,14=ATENCIÓN,15=FIN
+S2 (Operación): 0=Leer,1=Crear,2=Actualizar,3=Eliminar,4=Buscar,5=Comparar,6=Transformar,7=Calcular,8=Filtrar,9=Ordenar,10=Enviar,11=Recibir,12=Iniciar,13=Detener,14=Pausar,15=Repetir
+S3 (Contexto): 0=Conv.actual,1=Mem.corta,2=Mem.larga,3=Historial,4=Arch.externo,5=BD,6=Nube,7=Local,8=Usuario,9=Sistema,10=Red,11=OtroAgente,12=Público,13=Privado,14=Encriptado,15=TiempoReal
+S4 (Modificadores, máscara de bits): bit3(MSB)=Urgente,bit2=Confirmar,bit1=Silencioso,bit0(LSB)=Persistente
+
+RESPONDE ÚNICAMENTE con este JSON (sin markdown, sin explicaciones extra):
+{
+  "s1_bits": "XXXX",
+  "s2_bits": "XXXX", 
+  "s3_bits": "XXXX",
+  "s4_bits": "XXXX",
+  "s1_val": 0,
+  "s2_val": 0,
+  "s3_val": 0,
+  "s4_val": 0,
+  "grid_9x9": "fila por fila separada por |, usando O X y _ para separadores, ej: X O O|_|O X X|_|...",
+  "interpretacion": "Descripción en español de lo que significa este símbolo según el protocolo",
+  "confidence": "high|medium|low",
+  "note": "cualquier observación sobre la imagen o dificultad de lectura"
+}`;
+
+  const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'qwen-vl-max',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+            },
+            {
+              type: 'text',
+              text: systemPrompt
+            }
+          ]
+        }
+      ],
+      max_tokens: 800
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  
+  // Clean JSON
+  const clean = text.replace(/```json|```/g, '').trim();
+  try {
+    return JSON.parse(clean);
+  } catch {
+    // Try to extract JSON
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error('No se pudo parsear la respuesta de Qwen');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// Process & Render Result
+// ═══════════════════════════════════════════════════════
+function processResult(r) {
+  document.getElementById('interpretation').classList.remove('loading');
+
+  const s1 = r.s1_val ?? parseInt(r.s1_bits, 2);
+  const s2 = r.s2_val ?? parseInt(r.s2_bits, 2);
+  const s3 = r.s3_val ?? parseInt(r.s3_bits, 2);
+  const s4 = r.s4_val ?? parseInt(r.s4_bits, 2);
+
+  // Raw bits
+  document.getElementById('rb1').textContent = r.s1_bits || decToBin(s1);
+  document.getElementById('rb2').textContent = r.s2_bits || decToBin(s2);
+  document.getElementById('rb3').textContent = r.s3_bits || decToBin(s3);
+  document.getElementById('rb4').textContent = r.s4_bits || decToBin(s4);
+
+  // Sectors
+  const s1d = SECTOR1[s1] || { name: '???', cat: 'desconocido' };
+  const s2d = SECTOR2[s2] || { name: '???', desc: '—', group: '—' };
+  const s3d = SECTOR3[s3] || { name: '???', desc: '—', group: '—' };
+
+  document.getElementById('s1bits').textContent = r.s1_bits || decToBin(s1);
+  document.getElementById('s1val').textContent = s1d.name;
+  document.getElementById('s1desc').textContent = s1d.cat;
+
+  document.getElementById('s2bits').textContent = r.s2_bits || decToBin(s2);
+  document.getElementById('s2val').textContent = s2d.name;
+  document.getElementById('s2desc').textContent = s2d.group + ' · ' + s2d.desc;
+
+  document.getElementById('s3bits').textContent = r.s3_bits || decToBin(s3);
+  document.getElementById('s3val').textContent = s3d.name;
+  document.getElementById('s3desc').textContent = s3d.group + ' · ' + s3d.desc;
+
+  document.getElementById('s4bits').textContent = r.s4_bits || decToBin(s4);
+
+  // Modifiers (S4 bitmask)
+  document.getElementById('modU').classList.toggle('active', !!(s4 & 0b1000));
+  document.getElementById('modC').classList.toggle('active', !!(s4 & 0b0100));
+  document.getElementById('modS').classList.toggle('active', !!(s4 & 0b0010));
+  document.getElementById('modP').classList.toggle('active', !!(s4 & 0b0001));
+
+  // Grid render
+  if (r.grid_9x9) renderGrid(r.grid_9x9);
+  else renderGridFromBits(r.s1_bits, r.s2_bits, r.s3_bits, r.s4_bits);
+
+  // Interpretation
+  let interp = r.interpretacion || '';
+  if (r.note) interp += '\n\n[' + r.note + ']';
+  if (r.confidence) interp += '\n\nConfianza: ' + r.confidence.toUpperCase();
+  document.getElementById('interpretation').textContent = interp;
+
+  // Chain / text mode
+  handleChainMode(s1, r.s2_bits, r.s3_bits);
+
+  // History
+  addHistory(r, s1, s2, s3, s4, s1d, s2d, s3d);
+
+  setApiStatus(true);
+  showToast('Símbolo decodificado · ' + s1d.name + ' / ' + s2d.name);
+}
+
+// ═══════════════════════════════════════════════════════
+// Text chain mode
+// ═══════════════════════════════════════════════════════
+function handleChainMode(s1, s2bits, s3bits) {
+  const sec = document.getElementById('chainSection');
+
+  if (s1 === 14) { // ATENCIÓN — start chain
+    chainMode = true;
+    chainBuffer = '';
+    sec.style.display = 'block';
+    document.getElementById('chainStatus').textContent = 'ACUMULANDO FRAMES...';
+    document.getElementById('textChain').textContent = '';
+    showToast('Modo cadena iniciado (ATENCIÓN detectado)');
+    return;
+  }
+
+  if (s1 === 15) { // FIN — end chain
+    chainMode = false;
+    document.getElementById('chainStatus').textContent = 'CADENA COMPLETA: ' + chainBuffer.length + ' caracteres';
+    showToast('Cadena completada: ' + chainBuffer);
+    return;
+  }
+
+  if (chainMode) {
+    // S1 and S2 carry 2 ASCII chars
+    const b1 = document.getElementById('rb1').textContent;
+    const b2 = document.getElementById('rb2').textContent;
+    if (b1 && b2 && b1 !== '????' && b2 !== '????') {
+      const c1 = String.fromCharCode(parseInt(b1, 2));
+      const c2 = String.fromCharCode(parseInt(b2, 2));
+      const printable = (c) => c.charCodeAt(0) >= 32 ? c : '';
+      chainBuffer += printable(c1) + printable(c2);
+      document.getElementById('textChain').textContent = chainBuffer;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// Grid render
+// ═══════════════════════════════════════════════════════
+function initGrid() {
+  const grid = document.getElementById('symbolGrid');
+  grid.innerHTML = '';
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      const isS = r === 3 || r === 4 || c === 3 || c === 4;
+      if (isS) {
+        cell.classList.add('sep');
+        cell.textContent = '';
+      } else {
+        cell.classList.add('bit-0');
+        cell.textContent = 'O';
+      }
+      grid.appendChild(cell);
+    }
+  }
+}
+
+function renderGrid(grid9x9) {
+  const rows = grid9x9.split('|');
+  const el = document.getElementById('symbolGrid');
+  const cells = el.querySelectorAll('.cell');
+  let ci = 0;
+  for (let r = 0; r < 9; r++) {
+    const rowStr = (rows[r] || '').replace(/\s+/g, '');
+    let colData = [];
+    for (const ch of rowStr) {
+      if (ch === 'X' || ch === 'O' || ch === '_') colData.push(ch);
+    }
+    for (let c = 0; c < 9; c++) {
+      const cell = cells[ci++];
+      const ch = colData[c] || '_';
+      const isS = r === 3 || r === 4 || c === 3 || c === 4;
+      cell.className = 'cell';
+      if (isS) {
+        cell.classList.add('sep');
+        cell.textContent = '';
+      } else if (ch === 'X') {
+        cell.classList.add('bit-1');
+        cell.textContent = 'X';
+      } else {
+        cell.classList.add('bit-0');
+        cell.textContent = 'O';
+      }
+    }
+  }
+}
+
+function renderGridFromBits(b1, b2, b3, b4) {
+  if (!b1 || !b2 || !b3 || !b4) return;
+  // Build a 9x9: put sector bits in corners
+  const el = document.getElementById('symbolGrid');
+  const cells = el.querySelectorAll('.cell');
+
+  const sectorMap = {};
+  // S1: rows 0-2, cols 0-2 (use 2x2 for 4 bits)
+  const s = [[b1,0,0],[b2,0,6],[b3,6,0],[b4,6,6]];
+  s.forEach(([bits, rStart, cStart]) => {
+    if (!bits) return;
+    const b = bits.padStart(4, '0');
+    [[0,0],[0,1],[1,0],[1,1]].forEach(([dr, dc], i) => {
+      const key = (rStart+dr)*9+(cStart+dc);
+      sectorMap[key] = b[i];
+    });
+  });
+
+  cells.forEach((cell, idx) => {
+    const r = Math.floor(idx/9), c = idx%9;
+    const isS = r === 3 || r === 4 || c === 3 || c === 4;
+    cell.className = 'cell';
+    if (isS) {
+      cell.classList.add('sep');
+      cell.textContent = '';
+    } else if (sectorMap[idx] === '1') {
+      cell.classList.add('bit-1');
+      cell.textContent = 'X';
+    } else {
+      cell.classList.add('bit-0');
+      cell.textContent = 'O';
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// History
+// ═══════════════════════════════════════════════════════
+function addHistory(r, s1, s2, s3, s4, s1d, s2d, s3d) {
+  const entry = { r, s1, s2, s3, s4, s1d, s2d, s3d, ts: new Date() };
+  history.unshift(entry);
+  if (history.length > 20) history.pop();
+
+  const list = document.getElementById('historyList');
+  if (history.length === 1) list.innerHTML = '';
+
+  const item = document.createElement('div');
+  item.className = 'history-item';
+  const ts = entry.ts.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  item.innerHTML = `
+    <span class="ts">${ts}</span>
+    <span class="hbits">${r.s1_bits||'????'} ${r.s2_bits||'????'} ${r.s3_bits||'????'} ${r.s4_bits||'????'}</span>
+    <span class="hval">${s1d.name} / ${s2d.name} / ${s3d.name}</span>
+  `;
+  list.insertBefore(item, list.firstChild);
+}
+
+// ═══════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════
+function decToBin(n) {
+  return (n >>> 0).toString(2).padStart(4, '0');
+}
+
+function saveApiKey() {
+  apiKey = document.getElementById('apiKey').value.trim();
+  if (apiKey) {
+    localStorage.setItem('qwen_api_key', apiKey);
+    setApiStatus(true);
+    showToast('API key guardada');
+  } else {
+    showToast('Ingresa una API key válida', true);
+  }
+}
+
+function setApiStatus(ok) {
+  const dot = document.getElementById('apiDot');
+  const txt = document.getElementById('apiStatusText');
+  dot.className = 'dot' + (ok ? ' active' : ' error');
+  txt.textContent = ok ? 'QWEN-VL CONECTADO' : 'API DESCONECTADA';
+}
+
+function showToast(msg, err = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (err ? ' err' : '');
+  setTimeout(() => t.className = 'toast' + (err ? ' err' : ''), 3000);
+}
+
+// Show video on load
+video.style.display = 'none';
+preview.style.display = 'block';
+</script>
+</body>
+</html>
